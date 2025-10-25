@@ -1,0 +1,179 @@
+import natural from 'natural'
+import yts from 'yt-search'
+import axios from 'axios'
+
+export async function before(m) {
+  const chat = db.data.chats[m.chat];
+  if (!m.text || !chat.autoAi) return !1;
+  if (chat.autoAi || m.isGroup) {
+    let q = m.quoted;
+    if (!q?.fromMe) return;
+    if (m.text.includes("@"+this.user.jid.split('@')[0]) || q?.fromMe === true) {
+
+      let text = m.text || '';
+      if (!text) return
+
+      this.sendPresenceUpdate(['composing'], m.chat)
+      try {
+        const { data } = await axios.get(`${APIs.ft}/ai/furina?content=${encodeURIComponent(text)}&user=${encodeURIComponent(m.pushName.split(' ')[0])}`)
+
+        const playKeywords = ['putar','putarkan','putarlagu','lagu','cariin','carikan','mainkan','mainkanlagu','play','playmusic','playasong']
+        const hasPlay = playKeywords.some(k => text.toLowerCase().includes(k))
+        if (hasPlay) {
+          try {
+            const urls = q.text?.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/.*?v=|shorts\/)[A-Za-z0-9_-]{11}/gi)
+            const tokenizer = new natural.WordTokenizer()
+            const tokens = tokenizer.tokenize(text.toLowerCase())
+            const keyword = tokens.find(t => playKeywords.includes(t))
+            const songName = keyword ? tokens.slice(tokens.indexOf(keyword) + 1).join(' ') : text
+            const huh = await this.sendMessage(m.chat, { 
+              text: `Oke, tunggu sebentar ya~ Furina sedang mencari "${songName}" untukmu! 😉`, 
+              contextInfo: { 
+                mentionedJid: [m.sender], 
+                externalAdReply: { 
+                  title: '✨ F U R I N A - A I', 
+                  body: 'Powered By aka', 
+                  mediaType: 1, 
+                  thumbnailUrl: thumb, 
+                  showAdAttribution: true 
+                } 
+              } 
+            }, { quoted: m })
+
+            let audioUrl, title  
+            if (urls && urls.length > 0) {  
+              audioUrl = await b(urls[0])  
+              title = songName  
+            } else {  
+              const search = await yts(songName)  
+              if (search.videos && search.videos.length > 0) {
+                const video = search.videos[0]  
+                audioUrl = await b(video.url)  
+                title = video.title  
+              } else {
+                throw new Error('Tidak ada hasil pencarian ditemukan')
+              }
+            }  
+                    
+            const sent = await this.sendAudio(m.chat, audioUrl.url, false, huh)  
+            await this.sendMessage(m.chat, { 
+              text: `Berikut adalah lagu yang kamu minta: ${title}`, 
+              contextInfo: { 
+                mentionedJid: [m.sender], 
+                externalAdReply: { 
+                  title: '✨ F U R I N A - A I', 
+                  body: 'Powered By aka ', 
+                  mediaType: 1, 
+                  thumbnailUrl: thumb, 
+                  showAdAttribution: true 
+                } 
+              } 
+            }, { quoted: sent })  
+          } catch (e) {  
+            await this.sendMessage(m.chat, { 
+              text: `Maaf, terjadi kesalahan: ${e.message}`, 
+              contextInfo: { 
+                mentionedJid: [m.sender], 
+                externalAdReply: { 
+                  title: '✨ F U R I N A - A I', 
+                  body: 'Powered By aka', 
+                  mediaType: 1, 
+                  thumbnailUrl: thumb, 
+                  showAdAttribution: true 
+                } 
+              } 
+            }, { quoted: m })  
+          }
+        }
+
+        const imgKeywords = ['poto','foto','gambar']
+        const hasImg = imgKeywords.some(k => text.toLowerCase().includes(k))
+        if (hasImg) {
+          try {
+            const tokenizer = new natural.WordTokenizer()
+            const tokens = tokenizer.tokenize(text.toLowerCase())
+            const keyword = tokens.find(t => imgKeywords.includes(t))
+            const query = keyword ? tokens.slice(tokens.indexOf(keyword) + 1).join(' ') : text
+            const result = await pinterest(query)
+            await this.sendMessage(m.chat, { 
+              image: { url: result }, 
+              fileName: `${query}.jpg`, 
+              caption: `Nih dari foto: ${query} 😉`, 
+              contextInfo: { 
+                mentionedJid: [m.sender], 
+                externalAdReply: { 
+                  title: '✨ F U R I N A - A I', 
+                  body: 'Powered By aka', 
+                  mediaType: 1, 
+                  thumbnailUrl: thumb, 
+                  showAdAttribution: true 
+                } 
+              } 
+            })
+          } catch (e) {
+            await this.sendMessage(m.chat, { 
+              text: `Maaf, Furina tidak bisa memberikan foto "${text}"`, 
+              contextInfo: { 
+                mentionedJid: [m.sender], 
+                externalAdReply: { 
+                  title: '✨ F U R I N A - A I', 
+                  body: 'Powered By aka', 
+                  mediaType: 1, 
+                  thumbnailUrl: thumb, 
+                  showAdAttribution: true 
+                } 
+              } 
+            }, { quoted: m })
+          }
+        }
+        
+        const response = data.result.message
+        await this.sendMessage(m.chat, { 
+          text: response, 
+          contextInfo: { 
+            mentionedJid: [m.sender], 
+            externalAdReply: { 
+              title: '✨ F U R I N A - A I', 
+              body: 'Powered By aka ', 
+              mediaType: 1, 
+              thumbnailUrl: thumb, 
+              showAdAttribution: true 
+            } 
+          } 
+        }, { quoted: m })
+      } catch (e) {
+        console.log(e);
+        return this.reply(m.chat, `Error: ${e.message}`, m);
+      }
+    }
+  }
+}
+
+async function b(videoUrl) {
+  try {
+    if (!videoUrl || typeof videoUrl !== 'string') {
+      throw new Error('URL video tidak valid')
+    }
+    
+    const { data } = await axios.get(`${APIs.ft}/download/youtube`, { 
+      params: { url: videoUrl } 
+    })
+    return data.result.download.mp3
+  } catch (err) {
+    if (err.response?.status === 403) throw new Error('Error 403: Akses ditolak oleh server API')
+    throw err
+  }
+}
+
+async function pinterest(q) {
+  try {
+    if (!q || typeof q !== 'string') {
+      throw new Error('Query pencarian tidak valid')
+    }
+    
+    const { data } = await axios.get(`${APIs.ft}/search/pinterest?q=${encodeURIComponent(q)}`)
+    return pickRandom(data.result)
+  } catch (err) {
+    throw new Error(`Error Pinterest: ${err.message}`)
+  }
+}
